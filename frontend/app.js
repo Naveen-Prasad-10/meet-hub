@@ -2,7 +2,7 @@
    MeetHub — Full Operational Logic
    ════════════════════════════════════════════ */
 
-const API = 'http://localhost:8000';
+const API = '';
 
 // ─── State ───
 const state = {

@@ -55,11 +55,9 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
-@app.get("/")
-async def root():
-    """Root endpoint."""
-    return {"message": "Welcome to meet-hub!"}
 
 
 @app.get("/health")
@@ -233,6 +231,8 @@ async def sync_calendar_from_meetings(db: Session = Depends(get_db)):
 
     return {"synced_meetings": len(meetings), "events_created": created}
 
+# Mount the static frontend
+app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
 
 if __name__ == "__main__":
     import uvicorn
