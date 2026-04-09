@@ -345,6 +345,15 @@ def extract_action_items(
             _save_item(action_items, seen_items, matched, what, lines, i, meeting_date)
             continue
 
+        # ── General Passive Obligation / Deadline ──────────────────────────
+        passive_action = re.search(
+            r'\b(needs?\s+to\s+be|must\s+be|should\s+be|shall\s+be|will\s+be|to\s+be|be)\s+(submitted|completed|done|finished|delivered|provided|updated|uploaded|sent|resolved|reviewed|presented)\b|\b(is\s+due|are\s+due)\b',
+            line_for_assign, re.IGNORECASE,
+        )
+        if passive_action:
+            _save_item(action_items, seen_items, "Unassigned", line_for_assign, lines, i, meeting_date)
+            continue
+
         # ── FIX (Bug C): collective subject → Team ────────────────────────
         collective = re.search(
             r'^(?:we|the\s+team|everyone|all\s+of\s+us)\s+' + modals + r'\s+([^.,\n]+)',
@@ -443,9 +452,9 @@ def _save_item(
     FIX (Bug F): \b anchors on connector keywords; bare 'on' removed.
     FIX (Bug G): pronoun-led vague deadlines discarded.
     """
-    # FIX (Bug F): word-boundary anchors; 'on' removed to avoid false matches
+    # FIX (Bug F): word-boundary anchors; 'on' added conditionally before known time words
     deadline_match = re.search(
-        r'\b(?:by|before|until|deadline|due)\b\s+([^.,\n]+)',
+        r'\b(?:by|before|until|deadline|due|on(?=\s+(?:\d|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|mon|tue|wed|thu|fri|sat|sun|today|tomorrow)))\b\s+([^.,\n]+)',
         what, re.IGNORECASE,
     )
     deadline: Optional[str] = None
@@ -472,7 +481,7 @@ def _save_item(
             deadline = _resolve_deadline(raw_dl, meeting_date)
             what = what[:deadline_match.start()].strip()
             what = re.sub(
-                r'\s+\b(?:by|before|until|deadline|due)\b\s*$',
+                r'\s+\b(?:by|before|until|deadline|due|on)\b\s*$',
                 '', what, flags=re.IGNORECASE,
             ).strip()
 
