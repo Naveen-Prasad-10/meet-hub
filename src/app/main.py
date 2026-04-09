@@ -1,19 +1,31 @@
-"""Main application entry point."""
-
 import os
+import datetime
+import json
 
 from dotenv import load_dotenv
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from app.settings import get_settings
+from sqlalchemy import select
 from sqlalchemy.orm import Session
-
 from app import crud
 from app.database import get_db, init_db
-from app.schemas import PostCreate, PostResponse, PostUpdate, UserCreate, UserResponse, UserUpdate
+from app.schemas import (
+    TranscriptProcessRequest, TranscriptProcessResponse,
+    MeetingQueryRequest, MeetingQueryResponse,
+    SentimentAnalysisRequest, SentimentAnalysisResponse,
+    MeetingSummaryRequest, MeetingSummaryResponse,
+    CrossMeetingAnalysisRequest, CrossMeetingAnalysisResponse,
+    IntelligenceExtractionRequest, IntelligenceExtractionResponse,
+    CalendarEventCreate, CalendarEventResponse
+)
+from app.services import (
+    process_transcript, answer_query, analyze_transcript_sentiment,
+    generate_summary, analyze_cross_meeting_query, extract_intelligence
+)
 
 load_dotenv()
 
@@ -30,9 +42,9 @@ settings = get_settings()
 
 app = FastAPI(
     title=settings.app_name,
-    description="A Python API built with Better Fullstack",
+    description="Meeting intelligence platform — extract decisions, actions, and sentiment from transcripts",
     version="0.1.0",
-    lifespan=lifespan,
+    lifespan=lifespan
 )
 
 app.add_middleware(
@@ -40,7 +52,7 @@ app.add_middleware(
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*"]
 )
 
 
@@ -56,86 +68,170 @@ async def health():
     return {"status": "healthy"}
 
 
-# User endpoints
-@app.post("/users", response_model=UserResponse, status_code=201)
-async def create_user(user: UserCreate, db: Session = Depends(get_db)):
-    """Create a new user."""
-    existing = crud.get_user_by_email(db, user.email)
-    if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    return crud.create_user(db, user)
+# Transcript processing endpoints
+@app.post("/transcripts/process", response_model=TranscriptProcessResponse)
+async def process_transcript_endpoint(request: TranscriptProcessRequest):
+    """Process a meeting transcript and return structured metadata."""
+    result = process_transcript(request.transcript)
+    return result
 
 
-@app.get("/users", response_model=list[UserResponse])
-async def list_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    """List all users."""
-    return crud.get_users(db, skip=skip, limit=limit)
+# Intelligence Extraction endpoint
+@app.post("/transcripts/extract", response_model=IntelligenceExtractionResponse)
+async def extract_intelligence_endpoint(request: IntelligenceExtractionRequest):
+    """Extract high-value, deduplicated, prioritized intelligence from a transcript."""
+    processed = process_transcript(request.transcript)
+    result = extract_intelligence(processed)
+    return result
 
 
-@app.get("/users/{user_id}", response_model=UserResponse)
-async def get_user(user_id: int, db: Session = Depends(get_db)):
-    """Get a user by ID."""
-    user = crud.get_user(db, user_id)
-    if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
+# Meeting Q&A endpoints
+@app.post("/meetings/query", response_model=MeetingQueryResponse)
+async def meeting_query_endpoint(request: MeetingQueryRequest):
+    """Answer questions based on meeting transcript context."""
+    result = answer_query(request.query, request.context)
+    return result
 
 
-@app.patch("/users/{user_id}", response_model=UserResponse)
-async def update_user(user_id: int, user: UserUpdate, db: Session = Depends(get_db)):
-    """Update a user."""
-    updated = crud.update_user(db, user_id, user)
-    if updated is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    return updated
+# Sentiment Analysis endpoints
+@app.post("/meetings/sentiment", response_model=SentimentAnalysisResponse)
+async def sentiment_analysis_endpoint(request: SentimentAnalysisRequest):
+    """Analyze sentiment and tone in a meeting transcript."""
+    result = analyze_transcript_sentiment(request.transcript)
+    return result
 
 
-@app.delete("/users/{user_id}", status_code=204)
-async def delete_user(user_id: int, db: Session = Depends(get_db)):
-    """Delete a user."""
-    if not crud.delete_user(db, user_id):
-        raise HTTPException(status_code=404, detail="User not found")
+# Meeting Summary endpoints
+@app.post("/meetings/summary", response_model=MeetingSummaryResponse)
+async def meeting_summary_endpoint(request: MeetingSummaryRequest):
+    """Generate a high-level summary of a meeting."""
+    result = generate_summary(
+        decisions=request.decisions,
+        action_items=request.action_items,
+        sentiment_timeline=request.sentiment_timeline,
+        speaker_summary=request.speaker_summary
+    )
+    return result
 
 
-# Post endpoints
-@app.post("/posts", response_model=PostResponse, status_code=201)
-async def create_post(post: PostCreate, db: Session = Depends(get_db)):
-    """Create a new post."""
-    # Verify author exists
-    if crud.get_user(db, post.author_id) is None:
-        raise HTTPException(status_code=400, detail="Author not found")
-    return crud.create_post(db, post)
+# Cross-Meeting Analysis endpoints
+@app.post("/meetings/cross-analyze", response_model=CrossMeetingAnalysisResponse)
+async def cross_meeting_analysis_endpoint(request: CrossMeetingAnalysisRequest):
+    """Answer complex queries requiring information from multiple meetings."""
+    result = analyze_cross_meeting_query(
+        query=request.query,
+        meetings=request.meetings
+    )
+    return result
 
 
-@app.get("/posts", response_model=list[PostResponse])
-async def list_posts(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    """List all posts."""
-    return crud.get_posts(db, skip=skip, limit=limit)
+# Meeting Management
+@app.get("/meetings", status_code=200)
+async def list_meetings(db: Session = Depends(get_db)):
+    """List all processed meetings."""
+    from app.models import Meeting
+    stmt = select(Meeting).order_by(Meeting.date.desc())
+    meetings = list(db.execute(stmt).scalars().all())
+    return meetings
 
 
-@app.get("/posts/{post_id}", response_model=PostResponse)
-async def get_post(post_id: int, db: Session = Depends(get_db)):
-    """Get a post by ID."""
-    post = crud.get_post(db, post_id)
-    if post is None:
-        raise HTTPException(status_code=404, detail="Post not found")
-    return post
+@app.post("/meetings", status_code=201)
+async def save_meeting(data: dict, db: Session = Depends(get_db)):
+    """Save a processed meeting and auto-assign action items to calendar."""
+    from app.models import Meeting
+    
+    # 1. Save Meeting
+    processed_data_dict = data.get("processed_data", {})
+    db_meeting = Meeting(
+        title=data.get("title", "Untitled Meeting"),
+        word_count=data.get("word_count", 0),
+        speakers=json.dumps(data.get("speakers", [])),
+        transcript=data.get("transcript", ""),
+        processed_data=json.dumps(processed_data_dict)
+    )
+    db.add(db_meeting)
+    db.commit()
+    db.refresh(db_meeting)
+
+    # 2. Auto-assign Action Items to Calendar
+    action_items = processed_data_dict.get("action_items", [])
+    for item in action_items:
+        # If no deadline, default to 3 days from now for "upcoming"
+        deadline = item.get("deadline")
+        if not deadline or deadline.lower() in ["tbd", "unknown", "none", "-"]:
+            deadline = (datetime.datetime.now() + datetime.timedelta(days=3)).strftime("%Y-%m-%d")
+        
+        event_data = CalendarEventCreate(
+            title=item.get("task", "Unnamed Task"),
+            description=f"Action item from meeting: {db_meeting.title}",
+            date=deadline,
+            owner=item.get("owner", "Unassigned"),
+            priority=item.get("priority", "MEDIUM"),
+            source_meeting_id=db_meeting.id
+        )
+        crud.create_calendar_event(db, event_data)
+
+    return db_meeting
 
 
-@app.patch("/posts/{post_id}", response_model=PostResponse)
-async def update_post(post_id: int, post: PostUpdate, db: Session = Depends(get_db)):
-    """Update a post."""
-    updated = crud.update_post(db, post_id, post)
-    if updated is None:
-        raise HTTPException(status_code=404, detail="Post not found")
-    return updated
+# Calendar Endpoints
+@app.get("/calendar", response_model=list[CalendarEventResponse])
+async def list_calendar_events(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    """List all upcoming work/calendar events."""
+    return crud.get_calendar_events(db, skip=skip, limit=limit)
 
 
-@app.delete("/posts/{post_id}", status_code=204)
-async def delete_post(post_id: int, db: Session = Depends(get_db)):
-    """Delete a post."""
-    if not crud.delete_post(db, post_id):
-        raise HTTPException(status_code=404, detail="Post not found")
+@app.post("/calendar", response_model=CalendarEventResponse, status_code=201)
+async def create_calendar_event(event: CalendarEventCreate, db: Session = Depends(get_db)):
+    """Manually add an event to the calendar."""
+    return crud.create_calendar_event(db, event)
+
+
+@app.post("/calendar/sync", status_code=200)
+async def sync_calendar_from_meetings(db: Session = Depends(get_db)):
+    """Rebuild calendar events from all saved meetings.
+    
+    Scans every meeting's processed_data for action items and creates
+    calendar events for any that don't already have one. Safe to call
+    multiple times — skips meetings that already have events linked.
+    """
+    from app.models import Meeting, CalendarEvent
+    from sqlalchemy import select as sa_select
+
+    meetings = list(db.execute(sa_select(Meeting)).scalars().all())
+    created = 0
+
+    for meeting in meetings:
+        # Check if this meeting already has calendar events
+        existing = db.execute(
+            sa_select(CalendarEvent).where(CalendarEvent.source_meeting_id == meeting.id)
+        ).scalars().first()
+        if existing:
+            continue  # already synced
+
+        try:
+            processed_data_dict = json.loads(meeting.processed_data or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        action_items = processed_data_dict.get("action_items", [])
+        for item in action_items:
+            deadline = item.get("deadline")
+            if not deadline or str(deadline).lower() in ["tbd", "unknown", "none", "-"]:
+                deadline = (datetime.datetime.now() + datetime.timedelta(days=3)).strftime("%Y-%m-%d")
+
+            event_data = CalendarEventCreate(
+                title=item.get("task", "Unnamed Task"),
+                description=f"Action item from meeting: {meeting.title}",
+                date=deadline,
+                owner=item.get("owner", "Unassigned"),
+                priority=item.get("priority", "MEDIUM"),
+                source_meeting_id=meeting.id
+            )
+            crud.create_calendar_event(db, event_data)
+            created += 1
+
+    return {"synced_meetings": len(meetings), "events_created": created}
 
 
 if __name__ == "__main__":

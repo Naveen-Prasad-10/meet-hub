@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MeetHub — Intelligent Meeting Operations</title>
+  <meta name="description" content="Transform meeting transcripts into structured intelligence, action items, and sentiment analysis." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body data-view="dashboard">
+
+  <div class="container">
+    <nav class="nav">
+      <div class="nav-logo" id="logo">Meet<span>Hub</span></div>
+      <div class="nav-links">
+        <button class="nav-btn active" data-target="dashboard">Dashboard</button>
+        <button class="nav-btn" data-target="calendar-section">Calendar</button>
+        <button class="nav-btn" data-target="intake">Add Meeting</button>
+      </div>
+    </nav>
+
+    <!-- DASHBOARD VIEW -->
+    <section class="view-section" id="view-dashboard">
+      <div class="dashboard-header">
+        <h2 class="view-title">Project Dashboard</h2>
+        <div class="stats-row" id="global-stats">
+          <div class="stat-mini"><span>0</span> Meetings</div>
+          <div class="stat-mini"><span>0</span> Action Items</div>
+        </div>
+      </div>
+      <div class="meeting-grid" id="meeting-grid">
+        <!-- Dynamically filled with meeting cards -->
+        <div class="empty-state">No meetings processed yet. Click 'Add Meeting' to start.</div>
+      </div>
+    </section>
+
+    <!-- INTAKE VIEW -->
+    <section class="view-section hidden" id="view-intake">
+      <div class="view-header">
+        <h2 class="view-title">Meeting Ingestion</h2>
+        <p class="subtitle">Upload one or more transcripts (.txt, .vtt) to extract intelligence.</p>
+      </div>
+      <div class="input-section">
+        <div class="upload-area" id="drop-zone">
+          <input type="file" id="file-input" multiple class="hidden" accept=".txt,.vtt" />
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+          <p>Drag & drop multiple files or <span>browse</span></p>
+          <div id="file-list" class="file-list"></div>
+        </div>
+        <textarea id="transcript-input" placeholder="...or paste a single raw transcript here if preferred" class="hidden-on-files"></textarea>
+        <div class="btn-container">
+          <button class="submit-btn" id="btn-submit">
+            <span class="btn-text">Extract Intelligence</span>
+            <span class="loading-spinner hidden" id="spinner"></span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- MEETING DETAIL VIEW (HIDDEN INITIALLY) -->
+    <section class="view-section hidden" id="view-detail">
+      <button class="back-btn" id="btn-back">← Back to Dashboard</button>
+      <div id="detail-header" class="detail-header">
+        <h2 id="meeting-title">Meeting Title</h2>
+        <p id="meeting-meta">Date • Word Count • Speakers</p>
+      </div>
+
+      <div class="detail-grid">
+        <!-- LEFT COLUMN: INTELLIGENCE -->
+        <div class="detail-col">
+          <!-- MAIN POINTS -->
+          <div class="result-card">
+            <div class="card-header">
+              <h3 class="section-title">Main Points</h3>
+            </div>
+            <div class="highlights-grid" id="main-points-list"></div>
+          </div>
+
+          <!-- ACTION ITEMS & DECISIONS -->
+          <div class="result-card">
+            <div class="card-header">
+              <h3 class="section-title">Assigned Work</h3>
+              <button class="btn-small" id="btn-export">Export CSV</button>
+            </div>
+            <table class="work-table">
+              <thead><tr><th>Task</th><th>Who</th><th>When</th></tr></thead>
+              <tbody id="work-body"></tbody>
+            </table>
+          </div>
+
+          <!-- SENTIMENT DASHBOARD -->
+          <div class="result-card">
+            <div class="card-header">
+              <h3 class="section-title">Sentiment & Tone</h3>
+            </div>
+            <div class="sentiment-timeline" id="sentiment-timeline"></div>
+            <div class="speakers-sentiment" id="speakers-sentiment"></div>
+          </div>
+        </div>
+
+        <!-- RIGHT COLUMN: CHATBOT -->
+        <div class="detail-col chatbot-col">
+          <div class="result-card chatbot-card">
+            <div class="card-header">
+              <h3 class="section-title">Query Intelligence</h3>
+            </div>
+            <div class="chat-history" id="chat-history">
+              <div class="msg bot">Ask me anything about this meeting or project context.</div>
+            </div>
+            <div class="chat-input-area">
+              <input type="text" id="chat-input" placeholder="e.g., Why did we delay the launch?" />
+              <button id="btn-chat">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CALENDAR (Unified across views) -->
+    <section class="view-section hidden" id="view-calendar-section">
+      <div class="view-header">
+        <h2 class="view-title">Project Schedule</h2>
+      </div>
+      <div class="calendar-grid" id="calendar-grid"></div>
+    </section>
+
+  </div>
+
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

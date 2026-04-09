@@ -12,40 +12,39 @@ class Base(DeclarativeBase):
     pass
 
 
-class User(Base):
-    """User model."""
 
-    __tablename__ = "users"
+class Meeting(Base):
+    """Meeting model to store processed results."""
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
-    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
-    )
-
-    def __repr__(self) -> str:
-        return f"<User(id={self.id}, email={self.email})>"
-
-
-class Post(Base):
-    """Post model - example model for reference."""
-
-    __tablename__ = "posts"
+    __tablename__ = "meetings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
-    content: Mapped[str | None] = mapped_column(Text, nullable=True)
-    author_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    date: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    word_count: Mapped[int] = mapped_column(Integer, default=0)
+    speakers: Mapped[str] = mapped_column(Text)  # JSON string of speakers
+    transcript: Mapped[str] = mapped_column(Text)
+    processed_data: Mapped[str] = mapped_column(Text)  # JSON string of all extracted results
+    
+    def __repr__(self) -> str:
+        return f"<Meeting(id={self.id}, title={self.title})>"
+
+
+class CalendarEvent(Base):
+    """CalendarEvent model to store tasks and deadlines."""
+
+    __tablename__ = "calendar_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    date: Mapped[str] = mapped_column(String(100), nullable=False) # Store as string for flexibility (e.g. "2026-04-10" or "Friday")
+    owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    priority: Mapped[str] = mapped_column(String(50), default="MEDIUM")
+    source_meeting_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
-    )
 
     def __repr__(self) -> str:
-        return f"<Post(id={self.id}, title={self.title})>"
+        return f"<CalendarEvent(id={self.id}, title={self.title}, date={self.date})>"
