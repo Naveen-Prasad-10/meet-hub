@@ -27,6 +27,15 @@ Bug G  – Pronoun-led vague clauses ("it ships", "we launch") discarded as
 import re
 from datetime import datetime, timedelta
 from typing import Optional
+from difflib import SequenceMatcher
+import spacy
+
+try:
+    nlp = spacy.load("en_core_web_sm")
+except OSError:
+    import spacy.cli
+    spacy.cli.download("en_core_web_sm")
+    nlp = spacy.load("en_core_web_sm")
 
 
 # ---------------------------------------------------------------------------
@@ -74,12 +83,23 @@ def _resolve_deadline(raw: str, meeting_date: Optional[str]) -> str:
         return raw.strip()
 
     if not meeting_date:
-        return f"[UNRESOLVED] {raw.strip()}"
-
-    try:
-        anchor = datetime.strptime(meeting_date, "%Y-%m-%d")
-    except ValueError:
-        return f"[UNRESOLVED] {raw.strip()}"
+        anchor = datetime.now()
+    else:
+        try:
+            anchor = datetime.strptime(meeting_date, "%Y-%m-%d")
+        except ValueError:
+            anchor = datetime.now()
+            
+    # Handle postponements
+    is_postponed = bool(re.search(r'\b(postponed|delayed|pushed back)\b', raw_stripped))
+    if is_postponed:
+        # Check if they said "postponed to <day/date>"
+        postpone_target = re.search(r'\b(?:to|until|by)\s+([^.,\n]+)', raw_stripped)
+        if postpone_target:
+            raw_stripped = postpone_target.group(1).strip()
+        else:
+            # Default postponement: 1 week from anchor
+            return (anchor + timedelta(days=7)).strftime("%Y-%m-%d")
 
     next_prefix = "next " in raw_stripped or "this " in raw_stripped
 
@@ -127,8 +147,23 @@ def _resolve_deadline(raw: str, meeting_date: Optional[str]) -> str:
             return d.strftime("%Y-%m-%d")
         except ValueError:
             pass
+            
+    # NLP fallback for finding exact dates in vague strings
+    try:
+        doc = nlp(raw_stripped)
+        for ent in doc.ents:
+            if ent.label_ == "DATE":
+                # Just flag it with the extracted date text for human review, since spacy date strings are varied
+                return f"[UNRESOLVED] NLP extracted: {ent.text}"
+    except NameError:
+        pass
 
     return f"[UNRESOLVED] {raw.strip()}"
+
+
+# Public alias — other services resolve deadlines without touching the private
+# name (see structured_extractor).
+resolve_deadline = _resolve_deadline
 
 
 # ---------------------------------------------------------------------------
@@ -229,6 +264,9 @@ def _normalize_text(text: str) -> str:
     if text:
         text = text[0].upper() + text[1:]
     return text
+
+def _similarity(a: str, b: str) -> float:
+    return SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
 
 # ---------------------------------------------------------------------------
@@ -405,11 +443,14 @@ def extract_action_items(
 
         # ── Cross-line / follow-up deadlines ──────────────────────────────
         followup_dl = re.search(
-            r'(?:finish(?:\s+it|that)?\s+by|deadline.*?is|push.*?deadline\s+to|due\s+by)\s+([^.,\n]+)', 
+            r'(?:finish(?:\s+it|that)?\s+by|deadline.*?is|push.*?deadline\s+to|due\s+by|postponed|delayed|pushed\s+back)\s+([^.,\n]*)', 
             line_clean, re.IGNORECASE
         )
         if followup_dl and action_items:
+            # If the regex matched but there's no trailing text, just pass the keyword
             raw_dl = followup_dl.group(1).strip()
+            if not raw_dl:
+                raw_dl = followup_dl.group(0).strip()
             
             target_task = None
             if "your deadline" in line_clean.lower() or "your task" in line_clean.lower():
@@ -427,6 +468,23 @@ def extract_action_items(
             
             if not (has_valid_old and is_new_unresolved):
                 target_task["when"] = new_dl
+
+        # ── NLP Person Extraction Fallback ──────────────────────────────
+        # If we got this far and still haven't extracted an explicit action from this line,
+        # but the line sounds like a task due to action verbs, try finding a PERSON with spaCy.
+        if "will " in line_clean.lower() or "needs to " in line_clean.lower():
+            try:
+                doc = nlp(line_clean)
+                people = [ent.text for ent in doc.ents if ent.label_ == "PERSON"]
+                if people:
+                    person = next((p for p in people if any(p.lower() in s.lower() for s in speakers)), people[0])
+                    # Ensure not already assigned
+                    already_handled = any(person in t['who'] and _similarity(t['what'], line_clean) > 0.5 for t in action_items)
+                    if not already_handled:
+                        what_str = re.sub(r"^[A-Z][a-zA-Z0-9\s\.\-']+?:\s*", '', line_clean)
+                        _save_item(action_items, seen_items, person, what_str, lines, i, meeting_date)
+            except NameError:
+                pass
 
     return action_items
 

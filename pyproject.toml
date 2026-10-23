@@ -17,6 +17,8 @@ dependencies = [
     "pydantic>=2.10.0",
     "pydantic-settings>=2.6.0",
     "python-dotenv>=1.0.1",
+    "python-multipart>=0.0.9",
+    "spacy>=3.7.0",
 ]
 
 [project.optional-dependencies]

@@ -35,7 +35,8 @@ meet-hub/
 │           ├── sentiment_analyzer.py
 │           ├── meeting_summary.py
 │           ├── meeting_qa.py
-│           └── cross_meeting_analyzer.py
+│           ├── cross_meeting_analyzer.py
+│           └── structured_extractor.py
 ├── frontend/             # Static HTML/CSS/JS dashboard
 ├── tests/                # Test suite
 └── migrations/           # Alembic migrations
@@ -51,6 +52,12 @@ meet-hub/
 - `POST /transcripts/extract` - Extract prioritized, confidence-scored intelligence
   - Accepts: `{"transcript": "raw transcript text"}`
   - Returns: `{decisions: [{text, priority, confidence}], action_items: [{owner, task, deadline, priority, confidence}]}`
+- `POST /transcripts/analyze` - Evidence-anchored structured report (typed transcript)
+  - Accepts: `{"transcript": "raw transcript text"}`
+  - Returns: `{meeting_title, summary, decisions: [{decision, evidence}], tasks: [{title, description, assignee, due_date, evidence}], blockers: [{issue, evidence}]}`
+- `POST /transcripts/analyze/file` - Same report from an uploaded file (multipart)
+  - Accepts: `file` (`.txt`, `.vtt`, `.md`; other suffixes → 400)
+  - Returns: same shape as `/transcripts/analyze`
 - `POST /meetings/query` - Answer questions based on transcript context
   - Accepts: `{"query": "question", "context": ["chunks"]}`
   - Returns: `{answer, sources}`
@@ -71,9 +78,26 @@ meet-hub/
 
 ## Common Commands
 
-- `uv sync` - Install dependencies
+- `uv sync --extra dev` - Install dependencies (includes pytest)
 - `cd src && python -m uvicorn app.main:app --reload` - Start dev server
 - `python -m pytest` - Run tests
+- `uv pip install en_core_web_sm` - Reinstall the spaCy model if `uv sync` prunes it
+  (`transcript_processor` downloads it on first import if it is missing)
+
+## Extraction Guarantees
+
+`structured_extractor.py` implements a strict no-hallucination contract:
+
+- Nothing is emitted that the transcript does not explicitly support.
+- Every decision / task / blocker carries the verbatim transcript line as `evidence`.
+- `assignee` is null unless a named person is identified (pronouns and collectives
+  such as "we"/"the team" never resolve to an individual).
+- `due_date` is null unless a concrete date is stated and resolves to `YYYY-MM-DD`.
+- Hedged language ("maybe", "not decided", "let's consider") never yields a decision.
+- An empty transcript returns nulls and empty lists.
+
+Keep these invariants when editing that module — `tests/test_structured_extractor.py`
+pins them.
 
 ## Maintenance
 

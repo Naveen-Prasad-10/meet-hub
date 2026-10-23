@@ -19,6 +19,7 @@
         <button class="nav-btn active" data-target="dashboard">Dashboard</button>
         <button class="nav-btn" data-target="calendar-section">Calendar</button>
         <button class="nav-btn" data-target="intake">Add Meeting</button>
+        <button class="nav-btn" data-target="report">Report</button>
       </div>
     </nav>
 
@@ -56,7 +57,33 @@
             <span class="btn-text">Extract Intelligence</span>
             <span class="loading-spinner hidden" id="spinner"></span>
           </button>
+          <button class="btn-secondary" id="btn-report-from-intake">Generate Structured Report</button>
         </div>
+      </div>
+    </section>
+
+    <!-- STRUCTURED REPORT VIEW -->
+    <section class="view-section hidden" id="view-report">
+      <div class="view-header">
+        <h2 class="view-title">Structured Extraction Report</h2>
+        <p class="subtitle">Evidence-anchored output — only what the transcript explicitly supports.</p>
+      </div>
+      <div class="btn-container">
+        <button class="submit-btn" id="btn-generate-report">
+          <span class="btn-text">Generate Report</span>
+          <span class="loading-spinner hidden" id="report-spinner"></span>
+        </button>
+        <button class="btn-secondary hidden" id="btn-copy-json">Copy JSON</button>
+      </div>
+      <p class="report-hint">Uses the transcript from <strong>Add Meeting</strong> — uploaded <code>.txt</code>/<code>.vtt</code> file(s) or the pasted text.</p>
+      <div id="report-output">
+        <div class="empty-state">No report generated yet. Add a transcript via 'Add Meeting', then generate the report.</div>
+      </div>
+      <div class="result-card hidden" id="report-json-card">
+        <div class="card-header">
+          <h3 class="section-title">Raw JSON</h3>
+        </div>
+        <pre id="report-json"></pre>
       </div>
     </section>
 
@@ -121,12 +148,100 @@
       </div>
     </section>
 
-    <!-- CALENDAR (Unified across views) -->
+    <!-- CALENDAR -->
     <section class="view-section hidden" id="view-calendar-section">
-      <div class="view-header">
-        <h2 class="view-title">Project Schedule</h2>
+      <div class="view-header calendar-header">
+        <div class="calendar-title-group">
+          <h2 class="view-title">Work Calendar</h2>
+          <p class="timeline-summary" id="timeline-summary"></p>
+        </div>
+
+        <div class="calendar-controls">
+          <!-- View Toggle -->
+          <div class="cal-toggle-group">
+            <button type="button" class="cal-toggle-btn active" id="btn-view-month">Month Grid</button>
+            <button type="button" class="cal-toggle-btn" id="btn-view-timeline">Timeline</button>
+          </div>
+
+          <!-- Month Navigation (Month Grid Mode) -->
+          <div class="cal-nav-group" id="month-nav-controls">
+            <button type="button" class="cal-nav-btn" id="cal-prev-month" title="Previous Month" aria-label="Previous Month">&#8249;</button>
+            <span class="cal-month-label" id="cal-month-label">October 2026</span>
+            <button type="button" class="cal-nav-btn" id="cal-next-month" title="Next Month" aria-label="Next Month">&#8250;</button>
+            <button type="button" class="cal-today-btn" id="cal-today-btn">Today</button>
+          </div>
+
+          <!-- Filters -->
+          <div class="calendar-filters">
+            <div class="calendar-filter">
+              <label for="calendar-status-filter">Status</label>
+              <select id="calendar-status-filter" class="calendar-select">
+                <option value="ACTIVE">Active Work</option>
+                <option value="RESOLVED">Resolved / Completed</option>
+                <option value="all">All Items</option>
+              </select>
+            </div>
+            <div class="calendar-filter">
+              <label for="calendar-priority-filter">Priority</label>
+              <select id="calendar-priority-filter" class="calendar-select">
+                <option value="all">All Priorities</option>
+                <option value="HIGH">High Priority</option>
+                <option value="MEDIUM">Medium Priority</option>
+                <option value="LOW">Low Priority</option>
+              </select>
+            </div>
+            <div class="calendar-filter" id="timeline-range-filter-wrapper" style="display:none;">
+              <label for="calendar-range">Range</label>
+              <select id="calendar-range" class="calendar-select">
+                <option value="all">Everything</option>
+                <option value="upcoming">Upcoming</option>
+                <option value="30">Next 30 days</option>
+                <option value="7">Next 7 days</option>
+                <option value="overdue">Overdue only</option>
+              </select>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="calendar-grid" id="calendar-grid"></div>
+
+      <!-- MONTH GRID VIEW -->
+      <div id="calendar-month-view" class="calendar-month-wrapper">
+        <div class="cal-weekdays-row">
+          <div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div>
+        </div>
+        <div class="cal-grid-cells" id="calendar-grid-cells">
+          <!-- Day cells generated dynamically -->
+        </div>
+      </div>
+
+      <!-- TIMELINE VIEW -->
+      <div id="calendar-timeline-view" class="timeline-wrapper hidden">
+        <div class="timeline" id="calendar-timeline"></div>
+      </div>
+
+      <!-- UNSCHEDULED WORK TRAY -->
+      <div class="unscheduled-tray" id="unscheduled-tray">
+        <div class="unscheduled-head">
+          <h3 class="section-title">Unscheduled Tasks <span id="unscheduled-count">(0)</span></h3>
+          <span class="unscheduled-hint">Action items from meetings without a concrete deadline</span>
+        </div>
+        <div class="unscheduled-items" id="unscheduled-list"></div>
+      </div>
+
+      <!-- DAY DETAIL MODAL -->
+      <div class="cal-modal hidden" id="cal-day-modal">
+        <div class="cal-modal-backdrop" id="cal-modal-backdrop"></div>
+        <div class="cal-modal-content">
+          <div class="cal-modal-header">
+            <div>
+              <h3 id="cal-modal-date" class="cal-modal-title">Work for Date</h3>
+              <p id="cal-modal-subtitle" class="cal-modal-sub">Scheduled action items</p>
+            </div>
+            <button class="cal-modal-close" id="cal-modal-close" aria-label="Close modal">&times;</button>
+          </div>
+          <div class="cal-modal-body" id="cal-modal-items"></div>
+        </div>
+      </div>
     </section>
 
   </div>

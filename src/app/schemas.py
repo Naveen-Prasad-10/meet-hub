@@ -158,6 +158,47 @@ class IntelligenceExtractionRequest(BaseModel):
     transcript: str
 
 
+# Structured (evidence-anchored) extraction schemas
+class StructuredDecision(BaseModel):
+    """A finalized decision, supported by a verbatim transcript statement."""
+
+    decision: str
+    evidence: str | None = None
+
+
+class StructuredTask(BaseModel):
+    """A confirmed action item; assignee/due_date stay null unless stated."""
+
+    title: str
+    description: str | None = None
+    assignee: str | None = None
+    due_date: str | None = None
+    evidence: str | None = None
+
+
+class StructuredBlocker(BaseModel):
+    """A risk, blocker, dependency, constraint or open question."""
+
+    issue: str
+    evidence: str | None = None
+
+
+class StructuredExtractionResponse(BaseModel):
+    """Full extraction contract for one meeting transcript."""
+
+    meeting_title: str | None = None
+    summary: str
+    decisions: list[StructuredDecision] = []
+    tasks: list[StructuredTask] = []
+    blockers: list[StructuredBlocker] = []
+
+
+class StructuredExtractionRequest(BaseModel):
+    """Schema for a transcript typed/pasted by the user."""
+
+    transcript: str = ""
+
+
 # Cross-Meeting Analysis schemas
 class CrossMeetingSource(BaseModel):
     """Schema for a cross-meeting source citation."""
@@ -192,6 +233,8 @@ class CalendarEventBase(BaseModel):
     owner: str | None = None
     priority: str = "MEDIUM"
     source_meeting_id: int | None = None
+    status: str = "ACTIVE"
+    resolution_reason: str | None = None
 
 
 class CalendarEventCreate(CalendarEventBase):

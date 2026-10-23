@@ -11,6 +11,11 @@ from app.services.sentiment_analyzer import (
 from app.services.meeting_summary import generate_summary
 from app.services.cross_meeting_analyzer import analyze_cross_meeting_query
 from app.services.intelligence_extractor import extract_intelligence
+from app.services.structured_extractor import (
+    extract_structured_report,
+    parse_utterances,
+)
+from app.services.work_resolver import detect_work_resolutions
 
 __all__ = [
     "process_transcript",
@@ -25,4 +30,7 @@ __all__ = [
     "generate_summary",
     "analyze_cross_meeting_query",
     "extract_intelligence",
+    "extract_structured_report",
+    "parse_utterances",
+    "detect_work_resolutions",
 ]

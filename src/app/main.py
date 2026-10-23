@@ -1,12 +1,13 @@
 import os
 import datetime
 import json
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from app.settings import get_settings
 from sqlalchemy import select
@@ -20,11 +21,13 @@ from app.schemas import (
     MeetingSummaryRequest, MeetingSummaryResponse,
     CrossMeetingAnalysisRequest, CrossMeetingAnalysisResponse,
     IntelligenceExtractionRequest, IntelligenceExtractionResponse,
+    StructuredExtractionRequest, StructuredExtractionResponse,
     CalendarEventCreate, CalendarEventResponse
 )
 from app.services import (
     process_transcript, answer_query, analyze_transcript_sentiment,
-    generate_summary, analyze_cross_meeting_query, extract_intelligence
+    generate_summary, analyze_cross_meeting_query, extract_intelligence,
+    extract_structured_report
 )
 
 load_dotenv()
@@ -83,6 +86,36 @@ async def extract_intelligence_endpoint(request: IntelligenceExtractionRequest):
     return result
 
 
+# Structured (evidence-anchored) extraction endpoints
+@app.post("/transcripts/analyze", response_model=StructuredExtractionResponse)
+async def analyze_transcript_endpoint(request: StructuredExtractionRequest):
+    """Extract the structured report from a typed/pasted transcript.
+
+    Returns only what the transcript explicitly supports; assignee and
+    due_date are null unless the transcript states them.
+    """
+    return extract_structured_report(request.transcript)
+
+
+# Transcript file extensions accepted by the upload endpoint
+_TRANSCRIPT_SUFFIXES = (".txt", ".vtt", ".md")
+
+
+@app.post("/transcripts/analyze/file", response_model=StructuredExtractionResponse)
+async def analyze_transcript_file_endpoint(file: UploadFile = File(...)):
+    """Extract the structured report from an uploaded transcript file."""
+    filename = (file.filename or "").lower()
+    if filename and not filename.endswith(_TRANSCRIPT_SUFFIXES):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type '{filename}'. Use .txt, .vtt or .md.",
+        )
+
+    raw_bytes = await file.read()
+    transcript = raw_bytes.decode("utf-8", errors="replace")
+    return extract_structured_report(transcript)
+
+
 # Meeting Q&A endpoints
 @app.post("/meetings/query", response_model=MeetingQueryResponse)
 async def meeting_query_endpoint(request: MeetingQueryRequest):
@@ -135,26 +168,67 @@ async def list_meetings(db: Session = Depends(get_db)):
 
 @app.post("/meetings", status_code=201)
 async def save_meeting(data: dict, db: Session = Depends(get_db)):
-    """Save a processed meeting and auto-assign action items to calendar."""
-    from app.models import Meeting
+    """Save a processed meeting, resolve completed calendar tasks, and auto-assign action items."""
+    from app.models import Meeting, CalendarEvent
+    from app.services.work_resolver import detect_work_resolutions
+    from sqlalchemy import select as sa_select
     
     # 1. Save Meeting
     processed_data_dict = data.get("processed_data", {})
+    transcript_text = data.get("transcript", "")
+    meeting_title = data.get("title", "Untitled Meeting")
+
     db_meeting = Meeting(
-        title=data.get("title", "Untitled Meeting"),
+        title=meeting_title,
         word_count=data.get("word_count", 0),
         speakers=json.dumps(data.get("speakers", [])),
-        transcript=data.get("transcript", ""),
+        transcript=transcript_text,
         processed_data=json.dumps(processed_data_dict)
     )
     db.add(db_meeting)
     db.commit()
     db.refresh(db_meeting)
 
-    # 2. Auto-assign Action Items to Calendar
+    # 2. Check for Resolutions against Existing Active Calendar Events
+    active_events_query = sa_select(CalendarEvent).where(CalendarEvent.status == "ACTIVE")
+    active_events = list(db.execute(active_events_query).scalars().all())
+
+    active_event_dicts = [
+        {
+            "id": e.id,
+            "title": e.title,
+            "description": e.description,
+            "owner": e.owner,
+            "date": e.date,
+            "priority": e.priority
+        }
+        for e in active_events
+    ]
+
+    decisions = processed_data_dict.get("decisions", [])
     action_items = processed_data_dict.get("action_items", [])
+
+    detected_resolutions = detect_work_resolutions(
+        active_events=active_event_dicts,
+        meeting_title=meeting_title,
+        decisions=decisions,
+        transcript=transcript_text,
+        raw_action_items=action_items
+    )
+
+    resolved_event_ids = set()
+    for res in detected_resolutions:
+        event_id = res["event_id"]
+        crud.resolve_calendar_event(
+            db=db,
+            event_id=event_id,
+            reason=res["reason"],
+            status=res["status"]
+        )
+        resolved_event_ids.add(event_id)
+
+    # 3. Auto-assign Action Items to Calendar (skip if this new action item immediately duplicates a resolved one)
     for item in action_items:
-        # If no deadline, default to 3 days from now for "upcoming"
         deadline = item.get("deadline")
         if not deadline or deadline.lower() in ["tbd", "unknown", "none", "-"]:
             deadline = (datetime.datetime.now() + datetime.timedelta(days=3)).strftime("%Y-%m-%d")
@@ -165,18 +239,27 @@ async def save_meeting(data: dict, db: Session = Depends(get_db)):
             date=deadline,
             owner=item.get("owner", "Unassigned"),
             priority=item.get("priority", "MEDIUM"),
-            source_meeting_id=db_meeting.id
+            source_meeting_id=db_meeting.id,
+            status="ACTIVE"
         )
         crud.create_calendar_event(db, event_data)
 
-    return db_meeting
+    return {
+        "meeting": db_meeting,
+        "resolutions": detected_resolutions
+    }
 
 
 # Calendar Endpoints
 @app.get("/calendar", response_model=list[CalendarEventResponse])
-async def list_calendar_events(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+async def list_calendar_events(
+    skip: int = 0, 
+    limit: int = 100, 
+    include_resolved: bool = True,
+    db: Session = Depends(get_db)
+):
     """List all upcoming work/calendar events."""
-    return crud.get_calendar_events(db, skip=skip, limit=limit)
+    return crud.get_calendar_events(db, skip=skip, limit=limit, include_resolved=include_resolved)
 
 
 @app.post("/calendar", response_model=CalendarEventResponse, status_code=201)
@@ -185,14 +268,33 @@ async def create_calendar_event(event: CalendarEventCreate, db: Session = Depend
     return crud.create_calendar_event(db, event)
 
 
+@app.patch("/calendar/{event_id}/resolve", response_model=CalendarEventResponse)
+async def resolve_calendar_event(
+    event_id: int, 
+    body: dict, 
+    db: Session = Depends(get_db)
+):
+    """Resolve an event with explicit reasoning."""
+    reason = body.get("reason", "Resolved based on meeting update.")
+    status = body.get("status", "RESOLVED")
+    updated = crud.resolve_calendar_event(db, event_id, reason=reason, status=status)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return updated
+
+
+@app.delete("/calendar/{event_id}", status_code=200)
+async def remove_calendar_event(event_id: int, db: Session = Depends(get_db)):
+    """Delete a calendar event."""
+    deleted = crud.delete_calendar_event(db, event_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return {"message": "Event deleted successfully", "id": event_id}
+
+
 @app.post("/calendar/sync", status_code=200)
 async def sync_calendar_from_meetings(db: Session = Depends(get_db)):
-    """Rebuild calendar events from all saved meetings.
-    
-    Scans every meeting's processed_data for action items and creates
-    calendar events for any that don't already have one. Safe to call
-    multiple times — skips meetings that already have events linked.
-    """
+    """Rebuild calendar events from all saved meetings."""
     from app.models import Meeting, CalendarEvent
     from sqlalchemy import select as sa_select
 
@@ -231,8 +333,10 @@ async def sync_calendar_from_meetings(db: Session = Depends(get_db)):
 
     return {"synced_meetings": len(meetings), "events_created": created}
 
-# Mount the static frontend
-app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
+# Mount the static frontend. Resolved from the package location so the app
+# boots regardless of the working directory (e.g. `cd src && uvicorn ...`).
+FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
+app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
 
 if __name__ == "__main__":
     import uvicorn

@@ -5,6 +5,7 @@ An intelligent meeting operations platform — upload transcripts and extract de
 ## Features
 
 - **Transcript Processing** — Extract speakers, decisions, and action items from raw transcripts
+- **Structured Extraction** — Evidence-anchored report (`/transcripts/analyze`) with decisions, tasks, blockers and verbatim evidence
 - **Intelligence Extraction** — Prioritized, confidence-scored, deduplicated insights
 - **Sentiment Analysis** — Per-speaker sentiment timeline and tone detection
 - **Meeting Summaries** — High-level overview with key decisions and urgent actions
@@ -28,11 +29,50 @@ An intelligent meeting operations platform — upload transcripts and extract de
 
 ```bash
 cp .env.example .env
-uv sync
+uv sync --extra dev
 cd src && python -m uvicorn app.main:app --reload
 ```
 
 The API will be running at [http://localhost:8000](http://localhost:8000).
+
+> `uv sync` prunes packages that are not in the lock file. If the spaCy model
+> disappears, reinstall it with
+> `uv pip install en_core_web_sm` (or just import the app once — it downloads
+> the model automatically).
+
+## Transcript Input
+
+Transcripts can be supplied two ways — both reach the same extraction pipeline:
+
+1. **Typed / pasted** in the *Add Meeting* view, sent as JSON to
+   `POST /transcripts/analyze`.
+2. **Uploaded file** — drag & drop a `.txt`, `.vtt` or `.md` transcript, sent as
+   multipart to `POST /transcripts/analyze/file` (unsupported suffixes return `400`).
+
+## Structured Extraction Contract
+
+`/transcripts/analyze` returns only what the transcript explicitly supports:
+
+```json
+{
+  "meeting_title": "Q3 Pricing Launch Sync",
+  "summary": "Sarah, Marcus and Dana met on 2026-09-28 and recorded 1 finalized decision ...",
+  "decisions": [{ "decision": "...", "evidence": "Sarah: We decided to ..." }],
+  "tasks": [{
+    "title": "Draft the migration plan",
+    "description": "Priya will draft the migration plan by Friday",
+    "assignee": "Priya",
+    "due_date": "2026-10-02",
+    "evidence": "Marcus: Priya will draft the migration plan by Friday."
+  }],
+  "blockers": [{ "issue": "...", "evidence": "Priya: I'm blocked on the legal sign-off." }]
+}
+```
+
+Guarantees: every item keeps the verbatim transcript line as `evidence`;
+`assignee` and `due_date` are `null` unless the transcript states them; hedged
+language never becomes a decision; an empty transcript returns nulls and empty
+lists.
 
 ## Project Structure
 
@@ -58,7 +98,8 @@ meet-hub/
 │           ├── sentiment_analyzer.py
 │           ├── meeting_summary.py
 │           ├── meeting_qa.py
-│           └── cross_meeting_analyzer.py
+│           ├── cross_meeting_analyzer.py
+│           └── structured_extractor.py
 ├── frontend/
 │   ├── index.html           # Dashboard UI
 │   ├── styles.css           # Styling
@@ -76,6 +117,8 @@ meet-hub/
 | `GET` | `/health` | Health check |
 | `POST` | `/transcripts/process` | Process a transcript → structured metadata |
 | `POST` | `/transcripts/extract` | Extract prioritized intelligence |
+| `POST` | `/transcripts/analyze` | Structured report from a typed transcript |
+| `POST` | `/transcripts/analyze/file` | Structured report from an uploaded file |
 | `POST` | `/meetings/query` | Q&A against transcript context |
 | `POST` | `/meetings/sentiment` | Sentiment & tone analysis |
 | `POST` | `/meetings/summary` | Generate meeting summary |
@@ -88,7 +131,7 @@ meet-hub/
 ## Commands
 
 ```bash
-uv sync                                              # Install dependencies
+uv sync --extra dev                                  # Install dependencies + test tools
 cd src && python -m uvicorn app.main:app --reload     # Dev server
 python -m pytest                                      # Run tests
 uv run alembic revision --autogenerate -m "desc"      # Generate migration

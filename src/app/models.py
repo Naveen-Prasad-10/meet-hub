@@ -42,6 +42,8 @@ class CalendarEvent(Base):
     owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
     priority: Mapped[str] = mapped_column(String(50), default="MEDIUM")
     source_meeting_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(50), default="ACTIVE") # ACTIVE, RESOLVED, CANCELLED
+    resolution_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
